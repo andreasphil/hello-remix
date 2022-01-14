@@ -1,5 +1,6 @@
 import { ActionFunction, json, redirect, useActionData } from "remix";
 import { db } from "~/utils/db.server";
+import { requireUserId } from "~/utils/session.server";
 
 const badRequest = (data: ActionData) => json(data, { status: 400 });
 
@@ -31,6 +32,7 @@ export const action: ActionFunction = async ({ request }) => {
   const body = await request.formData();
   const name = body.get("name");
   const content = body.get("content");
+  const userId = await requireUserId(request);
 
   if (typeof name !== "string" || typeof content !== "string") {
     return badRequest({ formError: "Form not submitted correctly" });
@@ -48,7 +50,7 @@ export const action: ActionFunction = async ({ request }) => {
   }
 
   const joke = await db.joke.create({
-    data: { name, content },
+    data: { name, content, jokesterId: userId },
   });
 
   return redirect(`/jokes/${joke.id}`);
