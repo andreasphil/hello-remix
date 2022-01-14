@@ -1,20 +1,27 @@
-import { ActionFunction, json, redirect, useActionData } from "remix";
+import type { ActionFunction, LoaderFunction } from "remix";
+import { useActionData, redirect, json, useCatch, Link } from "remix";
 import { db } from "~/utils/db.server";
-import { requireUserId } from "~/utils/session.server";
+import { requireUserId, getUserId } from "~/utils/session.server";
 
-const badRequest = (data: ActionData) => json(data, { status: 400 });
-
-const validateJokeName = (value: string) => {
-  if (value.length < 3) {
-    return "That joke's name is too short (should be at least 3 characters)";
+export const loader: LoaderFunction = async ({ request }) => {
+  const userId = await getUserId(request);
+  if (!userId) {
+    throw new Response("Unauthorized", { status: 401 });
   }
+  return {};
 };
 
-const validateJokeContent = (value: string) => {
-  if (value.length < 10) {
-    return "That joke is too short (should be at least 10 characters)";
+function validateJokeContent(content: string) {
+  if (content.length < 10) {
+    return `That joke is too short`;
   }
-};
+}
+
+function validateJokeName(name: string) {
+  if (name.length < 2) {
+    return `That joke's name is too short`;
+  }
+}
 
 type ActionData = {
   formError?: string;
@@ -28,31 +35,31 @@ type ActionData = {
   };
 };
 
-export const action: ActionFunction = async ({ request }) => {
-  const body = await request.formData();
-  const name = body.get("name");
-  const content = body.get("content");
-  const userId = await requireUserId(request);
+const badRequest = (data: ActionData) => json(data, { status: 400 });
 
+export const action: ActionFunction = async ({ request }) => {
+  const userId = await requireUserId(request);
+  const form = await request.formData();
+  const name = form.get("name");
+  const content = form.get("content");
   if (typeof name !== "string" || typeof content !== "string") {
-    return badRequest({ formError: "Form not submitted correctly" });
+    return badRequest({
+      formError: `Form not submitted correctly.`,
+    });
   }
 
-  const fieldErrors: ActionData["fieldErrors"] = {
+  const fieldErrors = {
     name: validateJokeName(name),
     content: validateJokeContent(content),
   };
-
-  const fields: ActionData["fields"] = { name, content };
-
+  const fields = { name, content };
   if (Object.values(fieldErrors).some(Boolean)) {
-    return badRequest({ fields, fieldErrors });
+    return badRequest({ fieldErrors, fields });
   }
 
   const joke = await db.joke.create({
-    data: { name, content, jokesterId: userId },
+    data: { ...fields, jokesterId: userId },
   });
-
   return redirect(`/jokes/${joke.id}`);
 };
 
@@ -65,14 +72,14 @@ export default function NewJokeRoute() {
       <form method="post">
         <div>
           <label>
-            Name:
+            Name:{" "}
             <input
               type="text"
-              name="name"
               defaultValue={actionData?.fields?.name}
-              aria-invalid={!!actionData?.fieldErrors?.name || undefined}
+              name="name"
+              aria-invalid={Boolean(actionData?.fieldErrors?.name) || undefined}
               aria-describedby={
-                !!actionData?.fieldErrors?.name ? "name-error" : undefined
+                actionData?.fieldErrors?.name ? "name-error" : undefined
               }
             />
           </label>
@@ -84,13 +91,15 @@ export default function NewJokeRoute() {
         </div>
         <div>
           <label>
-            Content:
+            Content:{" "}
             <textarea
-              name="content"
               defaultValue={actionData?.fields?.content}
-              aria-invalid={!!actionData?.fieldErrors?.content || undefined}
+              name="content"
+              aria-invalid={
+                Boolean(actionData?.fieldErrors?.content) || undefined
+              }
               aria-describedby={
-                !!actionData?.fieldErrors?.content ? "content-error" : undefined
+                actionData?.fieldErrors?.content ? "content-error" : undefined
               }
             />
           </label>
@@ -110,6 +119,27 @@ export default function NewJokeRoute() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+export function CatchBoundary() {
+  const caught = useCatch();
+
+  if (caught.status === 401) {
+    return (
+      <div className="error-container">
+        <p>You must be logged in to create a joke.</p>
+        <Link to="/login">Login</Link>
+      </div>
+    );
+  }
+}
+
+export function ErrorBoundary() {
+  return (
+    <div className="error-container">
+      Something unexpected went wrong. Sorry about that.
     </div>
   );
 }
